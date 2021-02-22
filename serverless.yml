@@ -1,0 +1,89 @@
+service: ilp
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  region: eu-west-2
+  stage: ${opt:stage}
+  lambdaHashingVersion: 20201221
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "states:StartExecution"
+      Resource:
+        - "*"
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-step-functions
+
+functions:
+  hitachiLender:
+    handler: src/hitachiLender.handler
+  creationLender:
+    handler: src/creationLender.handler
+  v12Lender:
+    handler: src/v12Lender.handler
+  etikaLender:
+    handler: src/etikaLender.handler
+
+stepFunctions:
+  stateMachines:
+    yourParallelMachine:
+      name: parallel-test-${self:provider.stage}
+      definition:
+        Comment: "An example of the Amazon States Language using a parallel state to execute two branches at the same time."
+        StartAt: Parallel
+        States:
+          Parallel:
+            Type: Parallel
+            Next: FinalState
+            Branches:
+            - StartAt: RouteRequest
+              States:
+                RouteRequest:
+                  Type: Choice
+                  Choices:
+                    - Variable: "$.hitachi"
+                      BooleanEquals: true
+                      Next: hitachiLender
+                  Default: endState
+                hitachiLender:
+                  Type: Task
+                  Resource:
+                    Fn::GetAtt: [hitachiLender, Arn]
+                  Next: endState
+                endState:
+                  Type: "Pass"
+                  End: true
+            - StartAt: v12Lender
+              States:
+                v12Lender:
+                  Type: Task
+                  Resource:
+                    Fn::GetAtt: [v12Lender, Arn]
+                  End: true
+            - StartAt: etikaLender
+              States:
+                etikaLender:
+                  Type: Task
+                  Resource:
+                    Fn::GetAtt: [etikaLender, Arn]
+                  End: true
+            - StartAt: Pass
+              States:
+                Pass:
+                  Type: Pass
+                  Next: Wait 2s
+                Wait 2s:
+                  Type: Wait
+                  Seconds: 2
+                  Next: creationLender
+                creationLender:
+                  Type: Task
+                  Resource:
+                    Fn::GetAtt: [creationLender, Arn]
+                  End: true
+          FinalState:
+            Type: Pass
+            End: true
